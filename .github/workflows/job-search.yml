@@ -1,0 +1,27 @@
+name: Job Search Automation
+
+on:
+  schedule:
+    - cron: '30 8 * * *'  # 8h30 UTC = 9h30 Paris (moins 1h de buffer)
+  workflow_dispatch:  # Pour tester manuellement
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: pip install requests
+      
+      - name: Run job search
+        env:
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        run: python job_search.py
