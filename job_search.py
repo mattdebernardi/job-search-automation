@@ -2,13 +2,11 @@
 import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
-import re
 import smtplib
 from email.mime.text import MIMEText
 import os
 import sys
 
-# Force flush
 os.environ['PYTHONUNBUFFERED'] = '1'
 
 RECIPIENT_EMAIL = "matthieu.debernardi@gmail.com"
@@ -17,94 +15,83 @@ GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
 NOW = datetime.now(timezone.utc)
 CUTOFF = NOW - timedelta(hours=72)
 
-print(f"\n{'='*60}")
-print("JOB SEARCH v3 - DEBUG VERSION")
-print(f"{'='*60}", flush=True)
-print(f"NOW: {NOW}", flush=True)
-print(f"CUTOFF (< 72h): {CUTOFF}", flush=True)
-print(f"GMAIL_USER: {GMAIL_USER}", flush=True)
-print(f"GMAIL_PASSWORD: {'SET' if GMAIL_APP_PASSWORD else 'MISSING'}", flush=True)
+print(f"\n{'='*70}", flush=True)
+print("🔍 JOB SEARCH AUTOMATION - DEBUG MODE", flush=True)
+print(f"{'='*70}", flush=True)
+print(f"⏰ Maintenant: {NOW.strftime('%d/%m/%Y %H:%M UTC')}", flush=True)
+print(f"⏰ Cutoff (< 72h): {CUTOFF.strftime('%d/%m/%Y %H:%M UTC')}", flush=True)
+print(f"{'='*70}\n", flush=True)
 
 def parse_date(date_str):
     if not date_str: 
         return None
     date_str = date_str.strip()
     
-    # RFC 2822
     try:
-        dt = datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
-        print(f"  ✓ Date parsée (RFC 2822): {dt}", flush=True)
-        return dt
+        return datetime.strptime(date_str, "%a, %d %b %Y %H:%M:%S %z")
     except:
         pass
     
-    # ISO 8601
     try:
         if date_str.endswith("Z"):
-            dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
-        else:
-            dt = datetime.fromisoformat(date_str)
-        print(f"  ✓ Date parsée (ISO): {dt}", flush=True)
-        return dt
+            return datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        return datetime.fromisoformat(date_str)
     except:
         pass
     
-    print(f"  ❌ Date non parsée: {date_str[:50]}", flush=True)
     return None
 
 def fetch_rss(url):
-    print(f"\n📡 Fetching: {url[:70]}...", flush=True)
+    print(f"📡 Tentative fetch: {url[:80]}...", flush=True)
     try:
-        resp = requests.get(url, timeout=10)
-        print(f"  Status: {resp.status_code}", flush=True)
+        resp = requests.get(url, timeout=15)
+        print(f"   Status HTTP: {resp.status_code}", flush=True)
         
         if resp.status_code != 200:
-            print(f"  ❌ HTTP {resp.status_code}", flush=True)
+            print(f"   ❌ Erreur HTTP {resp.status_code}\n", flush=True)
             return []
         
         root = ET.fromstring(resp.content)
-        print(f"  ✓ XML parsed", flush=True)
-        
         items = root.findall(".//item")
-        print(f"  Found {len(items)} items", flush=True)
+        print(f"   ✓ {len(items)} items trouvés dans le XML", flush=True)
         
         offers = []
-        for i, item in enumerate(items[:5]):  # Check first 5
+        for i, item in enumerate(items):
             title = item.findtext("title", "").strip()
             link = item.findtext("link", "").strip()
             pubdate_str = item.findtext("pubDate", "").strip()
             
-            print(f"    Item {i+1}: {title[:50]}", flush=True)
-            print(f"      pubDate raw: {pubdate_str[:40]}", flush=True)
+            if i < 3:  # Affiche les 3 premiers
+                print(f"\n   Item {i+1}: {title[:60]}", flush=True)
+                print(f"   Date: {pubdate_str[:50]}", flush=True)
             
             pubdate = parse_date(pubdate_str)
             
             if pubdate:
-                age = NOW - pubdate
-                hours_old = age.total_seconds() / 3600
-                print(f"      Age: {hours_old:.1f}h", flush=True)
+                age_hours = (NOW - pubdate).total_seconds() / 3600
+                if i < 3:
+                    print(f"   Âge: {age_hours:.1f}h", flush=True)
                 
                 if pubdate > CUTOFF:
-                    print(f"      ✅ KEEP (< 72h)", flush=True)
+                    if i < 3:
+                        print(f"   ✅ GARDE (< 72h)\n", flush=True)
                     offers.append({"title": title, "link": link, "pubDate": pubdate})
                 else:
-                    print(f"      ❌ SKIP (> 72h)", flush=True)
-            else:
-                print(f"      ❌ No date", flush=True)
+                    if i < 3:
+                        print(f"   ❌ REJETTE (> 72h)\n", flush=True)
         
-        print(f"  Result: {len(offers)} valid offers", flush=True)
+        print(f"   ➡️  Résultat: {len(offers)}/{len(items)} offres valides\n", flush=True)
         return offers
     
     except Exception as e:
-        print(f"  ❌ ERROR: {e}", flush=True)
-        import traceback
-        traceback.print_exc()
+        print(f"   ❌ ERREUR: {type(e).__name__}: {e}\n", flush=True)
         return []
 
 def send_email(subject, body):
-    print(f"\n📧 Sending email...", flush=True)
+    print(f"📧 Envoi email à {RECIPIENT_EMAIL}...", flush=True)
+    
     if not GMAIL_USER or not GMAIL_APP_PASSWORD:
-        print("❌ Missing credentials", flush=True)
+        print("❌ Secrets manquants!", flush=True)
         return False
     
     try:
@@ -117,39 +104,66 @@ def send_email(subject, body):
             server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
             server.sendmail(GMAIL_USER, RECIPIENT_EMAIL, msg.as_string())
         
-        print(f"✅ Email sent", flush=True)
+        print("✅ Email envoyé avec succès\n", flush=True)
         return True
+    
     except Exception as e:
-        print(f"❌ Email error: {e}", flush=True)
+        print(f"❌ Erreur email: {e}\n", flush=True)
         return False
 
 def main():
+    print("🌐 ÉTAPE 1: Récupération des flux RSS", flush=True)
+    print("-" * 70 + "\n", flush=True)
+    
     all_offers = []
     
+    # URLs élargies (toute la France, pas juste Paris)
     urls = [
-        "https://www.welcometothejungle.com/fr/rss/jobs?keywords=transformation%20digitale&locations=paris&job_types=cdi",
-        "https://fr.indeed.com/rss?q=transformation+digitale&l=paris&sort=date",
+        "https://www.welcometothejungle.com/fr/rss/jobs?keywords=transformation&job_types=cdi",
+        "https://fr.indeed.com/rss?q=transformation+digitale&sort=date",
     ]
     
     for url in urls:
         all_offers.extend(fetch_rss(url))
     
-    print(f"\n{'='*60}", flush=True)
-    print(f"TOTAL: {len(all_offers)} offers found", flush=True)
-    print(f"{'='*60}", flush=True)
+    print("\n" + "="*70, flush=True)
+    print(f"📊 RÉSULTAT FINAL: {len(all_offers)} offre(s) trouvée(s)", flush=True)
+    print("="*70 + "\n", flush=True)
+    
+    print("🌐 ÉTAPE 2: Génération du rapport", flush=True)
+    print("-" * 70 + "\n", flush=True)
     
     if not all_offers:
-        report = f"<h2>❌ Aucune offre trouvée pour {NOW.strftime('%d/%m/%Y')}</h2>"
+        report = f"""
+        <h1>❌ Aucune offre trouvée</h1>
+        <p><strong>Date:</strong> {NOW.strftime('%d/%m/%Y à %H:%M UTC')}</p>
+        <p>Aucune offre de transformation digitale trouvée datant de moins de 72 heures.</p>
+        <p><em>Les offres trouvées sont probablement trop vieilles ou inexistantes.</em></p>
+        """
     else:
-        report = f"<h2>✅ {len(all_offers)} offres trouvées</h2><ul>"
-        for o in all_offers:
-            report += f"<li><a href='{o['link']}'>{o['title']}</a></li>"
+        report = f"""
+        <h1>✅ {len(all_offers)} Offre(s) trouvée(s)</h1>
+        <p><strong>Période:</strong> Moins de 72 heures</p>
+        <p><strong>Date du rapport:</strong> {NOW.strftime('%d/%m/%Y à %H:%M UTC')}</p>
+        <hr>
+        <ul>
+        """
+        for i, offer in enumerate(all_offers, 1):
+            date_str = offer['pubDate'].strftime('%d/%m/%Y à %Hh%M')
+            report += f"<li><strong>[{i}] {offer['title']}</strong><br>Date: {date_str}<br><a href='{offer['link']}'>Voir l'offre</a></li><hr>"
+        
         report += "</ul>"
     
-    subject = f"Offres — {NOW.strftime('%d %b %Y')}"
+    subject = f"Recherche Offres Transformation Digitale — {NOW.strftime('%d %b %Y')}"
+    
+    print("📧 ÉTAPE 3: Envoi de l'email", flush=True)
+    print("-" * 70 + "\n", flush=True)
+    
     send_email(subject, report)
     
-    print("\n✅ Done\n", flush=True)
+    print("="*70, flush=True)
+    print("✅ EXÉCUTION TERMINÉE", flush=True)
+    print("="*70 + "\n", flush=True)
 
 if __name__ == "__main__":
     main()
